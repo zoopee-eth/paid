@@ -13,13 +13,14 @@ permissions:
   contents: read
   pages: write
   id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    # only one publish at a time; the wait for the next run is a separate job so a push never queues behind it
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -44,13 +45,17 @@ jobs:
           path: site
       - id: deployment
         uses: actions/deploy-pages@v4
+  next:
+    needs: deploy
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
       - name: Start the next run in ~10 minutes
-        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          elapsed=$(( $(date +%s) - ${T0:-0} ))
-          wait=$(( 540 - elapsed )); if [ $wait -gt 0 ]; then sleep $wait; fi
+          sleep 480
           # only one chain: skip if another run is already waiting or running
           active=$(gh run list -R "$GITHUB_REPOSITORY" -w pages.yml -L 20 --json status -q '[.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length')
           if [ "$active" -le 1 ]; then gh workflow run pages.yml -R "$GITHUB_REPOSITORY" --ref main; else echo "another run is already queued ($active active)"; fi
