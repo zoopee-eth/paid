@@ -88,6 +88,36 @@ function creatorRate(fee, chain) {
   return Math.max(0, kept - platform);
 }
 
+// Where a coin's share of the fees goes (fractions adding up to 1). Without tokenomics it all goes to the
+// creator (or the fee receiver they named). Tokenomics v1 buckets: burn, buyback, liquidity, creator,
+// community. v2: burn, buyHold, liquidity, holders (rewards to holders) and wallets (paid to named wallets).
+function splitOf(tk, chain) {
+  const pc = tk && tk.perChain && tk.perChain[chain];
+  if (!pc) return { creator: 1 };
+  const w = (pc.wallets || []).reduce((a, x) => a + (Number(x.bps) || 0), 0);
+  const raw = tk.version >= 2
+    ? { creator: w, holders: pc.holders || 0, buyback: pc.buyHold || 0, burn: pc.burn || 0, liquidity: pc.liquidity || 0 }
+    : { creator: pc.creator || 0, community: pc.community || 0, buyback: pc.buyback || 0, burn: pc.burn || 0, liquidity: pc.liquidity || 0 };
+  const sum = Object.values(raw).reduce((a, b) => a + b, 0);
+  if (!(sum > 0)) return { creator: 1 };
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v / sum]));
+}
+const NATIVE = { ethereum: 'ETH', base: 'ETH', robinhood: 'ETH', bsc: 'BNB', solana: 'SOL' };
+const KNOWN = { '0x6982508145454ce325ddbe47a25d4ec3d2311933': 'PEPE', 'dezxaz8z7pnrnrjjz3wxborgixca6xjnb7yab1ppb263': 'BONK' };
+// the tokens a coin pays its holders in, by name (Pangea coins by their ticker)
+function rewardTokens(tk, names) {
+  if (!tk || tk.version < 2 || !tk.perChain) return [];
+  const out = new Set();
+  for (const [chain, pc] of Object.entries(tk.perChain)) {
+    if (!(pc.holders > 0)) continue;
+    for (const r of pc.rewards || []) {
+      const a = String(r.token || '');
+      out.add(a === 'native' ? NATIVE[chain] || chain : names.get(a.toLowerCase()) || KNOWN[a.toLowerCase()] || a.slice(0, 6) + '…');
+    }
+  }
+  return [...out].slice(0, 6);
+}
+
 async function main() {
   const t0 = Date.now();
   await lzRpcs();
@@ -95,6 +125,8 @@ async function main() {
   // the platform's own coin ($PANGEA) pays its fees to the platform, not a creator
   const bySlug = new Map((pools.launches || []).filter(l => !l.test && !l.platform && l.slug !== 'pangea-dadd0d').map(l => [l.slug, l]));
   const vol24 = new Map((h24.launches || []).map(h => [h.slug, h]));
+  const tokenNames = new Map();
+  for (const l of pools.launches || []) for (const p of l.pools || []) if (p.token) tokenNames.set(String(p.token).toLowerCase(), l.symbol);
   const rows = [];
   // only launches that traded this week matter; read fees for those (new pools only)
   const active = (h7.launches || []).filter(h => h.volumeUsd > 0 && bySlug.has(h.slug)).sort((a, b) => b.volumeUsd - a.volumeUsd).slice(0, 300);
@@ -113,19 +145,22 @@ async function main() {
     const known = Object.values(feeByChain).filter(Boolean);
     const common = known.length ? known.sort((a, b) => a - b)[Math.floor(known.length / 2)] : null;   // Solana: same fee as the EVM chains (the usual setup)
     const calc = (hist) => {
-      let creator = 0, platform = 0, vol = 0; const chains = {};
+      let paid = 0, platform = 0, vol = 0; const chains = {}, split = {};
       for (const c of (hist && hist.chains) || []) {
         const bps = feeByChain[c.chain] || common; if (!bps || !(c.volumeUsd > 0)) continue;
-        const fee = bps / 10000, earned = c.volumeUsd * creatorRate(fee, c.chain);
-        creator += earned; platform += c.volumeUsd * Math.max(0.2 * fee, 0.002); vol += c.volumeUsd;
-        chains[c.chain] = { volUsd: Math.round(c.volumeUsd), feePct: +(fee * 100).toFixed(2), creatorUsd: Math.round(earned) };
+        const fee = bps / 10000, out = c.volumeUsd * creatorRate(fee, c.chain);
+        paid += out; platform += c.volumeUsd * Math.max(0.2 * fee, 0.002); vol += c.volumeUsd;
+        const sp = splitOf(l.tokenomics, c.chain), chSplit = {};
+        for (const [k, f] of Object.entries(sp)) if (f > 0) { split[k] = (split[k] || 0) + out * f; chSplit[k] = Math.round(out * f); }
+        chains[c.chain] = { volUsd: Math.round(c.volumeUsd), feePct: +(fee * 100).toFixed(2), paidUsd: Math.round(out), split: chSplit };
       }
-      return { creatorUsd: Math.round(creator), platformUsd: Math.round(platform), volUsd: Math.round(vol), trades: (hist && hist.trades) || 0, coverage: hist ? hist.coverage : null, chains };
+      for (const k of Object.keys(split)) split[k] = Math.round(split[k]);
+      return { paidUsd: Math.round(paid), split, platformUsd: Math.round(platform), volUsd: Math.round(vol), trades: (hist && hist.trades) || 0, coverage: hist ? hist.coverage : null, chains };
     };
     rows.push({ slug: l.slug, name: l.name, symbol: l.symbol, listedAt: l.listedAt * 1000, chainsLive: l.chainsLive, degen: !!l.degen, feePct: common ? +(common / 100).toFixed(2) : null,
-      hasTokenomics: !!l.tokenomics, feesPending: pending, week: calc(h), day: calc(vol24.get(l.slug)) });
+      hasTokenomics: !!l.tokenomics, rewardsIn: rewardTokens(l.tokenomics, tokenNames), feesPending: pending, week: calc(h), day: calc(vol24.get(l.slug)) });
   }
-  rows.sort((a, b) => b.week.creatorUsd - a.week.creatorUsd);
+  rows.sort((a, b) => b.week.paidUsd - a.week.paidUsd);
   // pictures and links for the top coins (the coin's own metadata; kept between runs)
   const meta = fees._meta || {};
   let metaReads = 0;
@@ -142,12 +177,12 @@ async function main() {
     if (meta[r.slug]) Object.assign(r, meta[r.slug]);
   }
   fees._meta = meta;
-  const sum = k => rows.filter(r => !r.hasTokenomics).reduce((a, r) => a + r[k].creatorUsd, 0);   // tokenomics coins spend the creator share instead of paying it
-  const data = { at: Date.now(), pangeaReadAt: pools.readAt || null, launches: rows.length, totals: { dayCreatorUsd: sum('day'), weekCreatorUsd: sum('week') }, rows };
+  const total = k => { const t = { paidUsd: 0, split: {} }; for (const r of rows) { t.paidUsd += r[k].paidUsd; for (const [b, v] of Object.entries(r[k].split)) t.split[b] = (t.split[b] || 0) + v; } return t; };
+  const data = { at: Date.now(), pangeaReadAt: pools.readAt || null, launches: rows.length, totals: { day: total('day'), week: total('week') }, rows };
   fees._hooks = hooks;
   fs.writeFileSync(FEES_FILE, JSON.stringify(fees));
   fs.writeFileSync(path.join(OUT, 'data.json'), JSON.stringify(data));
-  console.log(`${rows.length} launches · 24h creator fees $${data.totals.dayCreatorUsd} · 7d $${data.totals.weekCreatorUsd} · ${reads} new fee reads · hooks ${JSON.stringify(hooks)}`);
-  console.log(rows.slice(0, 5).map(r => `${r.symbol}: $${r.week.creatorUsd} (${r.feePct}% fee, ${JSON.stringify(Object.fromEntries(Object.entries(r.week.chains).map(([c, v]) => [c, v.feePct])))})`).join('\n'));
+  console.log(`${rows.length} launches · 24h paid out $${data.totals.day.paidUsd} · 7d $${data.totals.week.paidUsd} ${JSON.stringify(data.totals.week.split)} · ${reads} new fee reads · hooks ${JSON.stringify(hooks)}`);
+  console.log(rows.slice(0, 5).map(r => `${r.symbol}: $${r.week.paidUsd} ${JSON.stringify(r.week.split)} (${r.feePct}% fee, ${JSON.stringify(Object.fromEntries(Object.entries(r.week.chains).map(([c, v]) => [c, v.feePct])))})`).join('\n'));
 }
 main().catch(e => { console.error(e); process.exit(1); });
