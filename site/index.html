@@ -134,7 +134,7 @@ const usd = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e4 ? '$' + 
 const ago = ms => { const m = Math.round(ms / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
 const age = t => { const h = (Date.now() - t) / 36e5; return h < 1 ? Math.max(1, Math.round(h * 60)) + 'm old' : h < 48 ? Math.round(h) + 'h old' : Math.round(h / 24) + 'd old'; };
 // $PAID itself: fill these in after the launch and the bar under the header appears
-const COIN = { ticker: 'PAID', ca: '', pangea: '' };
+const COIN = { ticker: 'PAID', ca: 'CvXC9N7Bd2HTpeDa8ddYz2ErquLVhFh96As7S5N9x6ea', pangea: 'https://www.pangea.trade/app/t/CvXC9N7Bd2HTpeDa8ddYz2ErquLVhFh96As7S5N9x6ea' };
 if (COIN.ca) {
   const bar = document.getElementById('coinbar');
   bar.hidden = false;
