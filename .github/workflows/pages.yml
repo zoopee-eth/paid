@@ -1,0 +1,42 @@
+# Publishes the site (docs/) to GitHub Pages, with fresh Pangea fee leaderboard data (site/data.json)
+# built on every run. Runs on every push to main and every 10 minutes. The data is never committed.
+name: Publish PAID
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Last published data (kept if this run's build fails)
+        run: |
+          mkdir -p site
+          curl -fsSL "https://paidonpangea.xyz/fees.json" -o site/fees.json || curl -fsSL "https://zoopee-eth.github.io/watcher/paid/fees.json" -o site/fees.json || echo '{}' > site/fees.json
+          curl -fsSL "https://paidonpangea.xyz/data.json" -o site/data.json || true
+      - name: Build fee leaderboard data
+        continue-on-error: true
+        run: node scripts/build.js site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
