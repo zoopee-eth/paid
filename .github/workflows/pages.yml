@@ -1,13 +1,15 @@
-# Publishes the site (docs/) to GitHub Pages, with fresh Pangea fee leaderboard data (site/data.json)
-# built on every run. Runs on every push to main and every 10 minutes. The data is never committed.
+# Publishes paidonpangea.xyz (site/) to GitHub Pages with fresh Pangea fee data (site/data.json, never committed).
+# GitHub's own schedule is unreliable for a busy cron (runs get skipped for hours), so each run starts the
+# next one itself about 10 minutes later. The hourly schedule only restarts the chain if it ever breaks.
 name: Publish PAID
 on:
   push:
     branches: [main]
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
 permissions:
+  actions: write
   contents: read
   pages: write
   id-token: write
@@ -17,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -40,3 +42,14 @@ jobs:
           path: site
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Start the next run in ~10 minutes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STARTED: ${{ github.run_started_at }}
+        run: |
+          elapsed=$(( $(date +%s) - $(date -d "$STARTED" +%s) ))
+          wait=$(( 540 - elapsed )); if [ $wait -gt 0 ]; then sleep $wait; fi
+          # only one chain: skip if another run is already waiting or running
+          active=$(gh run list -R "$GITHUB_REPOSITORY" -w pages.yml -L 20 --json status -q '[.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length')
+          if [ "$active" -le 1 ]; then gh workflow run pages.yml -R "$GITHUB_REPOSITORY" --ref main; else echo "another run is already queued ($active active)"; fi
