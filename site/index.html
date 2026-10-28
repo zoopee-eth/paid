@@ -26,6 +26,16 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 .brand b{background:var(--money);color:var(--bg);padding:4px 8px;border-radius:6px}
 .updated{color:var(--muted);font-size:13px}
 .hero{padding:40px 0 28px}
+.hright{display:flex;align-items:center;gap:14px}
+.xbtn{font-weight:600;font-size:14px;text-decoration:none;border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:9px}
+.xbtn:hover{border-color:var(--muted)}
+.coinbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:10px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:14px}
+.coinbar b{color:var(--money)}
+.coinbar code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;min-width:0}
+.coinbar button,.coinbar a{all:unset;cursor:pointer;font-weight:600;font-size:13px;padding:5px 10px;border-radius:7px;border:1px solid var(--line)}
+.coinbar a.buy{background:var(--money);color:var(--bg);border-color:var(--money)}
+.coinbar button:focus-visible,.coinbar a:focus-visible{outline:2px solid var(--accent)}
+@media (max-width:720px){.updated{display:none}}
 .hero .k{color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.08em}
 .hero .big{font:700 clamp(48px,11vw,104px)/.95 "Space Grotesk",sans-serif;letter-spacing:-.03em;color:var(--money);margin:10px 0 12px;font-variant-numeric:tabular-nums}
 .hero p{margin:0;color:var(--muted);max-width:620px}
@@ -88,8 +98,9 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 <div class="wrap">
   <header>
     <div class="brand"><b>PAID</b> on Pangea</div>
-    <div class="updated" id="updated">loading…</div>
+    <div class="hright"><span class="updated" id="updated">loading…</span><a class="xbtn" href="https://x.com/PaidonPangea" target="_blank" rel="noopener">Follow on 𝕏</a></div>
   </header>
+  <div class="coinbar" id="coinbar" hidden></div>
 
   <section class="hero">
     <div class="k" id="heroK">Fees paid out on Pangea this week</div>
@@ -122,6 +133,14 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const usd = v => v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e4 ? '$' + Math.round(v / 1e3) + 'K' : v >= 1e3 ? '$' + (v / 1e3).toFixed(1) + 'K' : '$' + Math.round(v);
 const ago = ms => { const m = Math.round(ms / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
 const age = t => { const h = (Date.now() - t) / 36e5; return h < 1 ? Math.max(1, Math.round(h * 60)) + 'm old' : h < 48 ? Math.round(h) + 'h old' : Math.round(h / 24) + 'd old'; };
+// $PAID itself: fill these in after the launch and the bar under the header appears
+const COIN = { ticker: 'PAID', ca: '', pangea: '' };
+if (COIN.ca) {
+  const bar = document.getElementById('coinbar');
+  bar.hidden = false;
+  bar.innerHTML = `<span><b>$${COIN.ticker}</b> CA</span><code id="ca">${COIN.ca}</code><button id="copyCa">Copy</button>${COIN.pangea ? `<a class="buy" href="${COIN.pangea}" target="_blank" rel="noopener">Buy on Pangea</a>` : ''}`;
+  document.getElementById('copyCa').onclick = async e => { try { await navigator.clipboard.writeText(COIN.ca); e.target.textContent = 'Copied'; setTimeout(() => e.target.textContent = 'Copy', 1500); } catch {} };
+}
 const CHAIN = { ethereum: 'Ethereum', base: 'Base', robinhood: 'Robinhood', bsc: 'BSC', solana: 'Solana' };
 
 let D = null, win = 'week', sort = 'total', shown = 25;
